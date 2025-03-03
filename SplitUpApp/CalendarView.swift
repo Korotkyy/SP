@@ -209,7 +209,7 @@ struct DayCell: View {
     let isSelected: Bool
     let isCurrentMonth: Bool
     let hasEvent: Bool
-    let dateColor: Color
+    let hasDeadline: Bool
     
     var body: some View {
         ZStack {
@@ -223,7 +223,7 @@ struct DayCell: View {
                 .font(.system(size: 17))
                 .foregroundColor(
                     isSelected ? .black :
-                        isCurrentMonth ? dateColor : .gray
+                        isCurrentMonth ? (hasDeadline ? .green : (hasEvent ? .customAccent : .white)) : .gray
                 )
         }
         .frame(width: 40, height: 40)
@@ -233,23 +233,23 @@ struct DayCell: View {
 struct CustomCalendarView: View {
     @Binding var selectedDate: Date
     let hasEvents: (Date) -> Bool
+    let hasDeadline: (Date) -> Bool
     let onDateSelected: () -> Void
-    let dateColor: (Date) -> Color
     
     private var calendar: Calendar {
         var cal = Calendar.current
-        cal.firstWeekday = 1  // 1 = Воскресенье, 2 = Понедельник
-        cal.locale = Locale(identifier: "en_US")  // Используем US локаль для консистентности
+        cal.firstWeekday = 1
+        cal.locale = Locale(identifier: "en_US")
         return cal
     }
     
-    private let daysOfWeek = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]  // Убедимся, что порядок соответствует календарю
+    private let daysOfWeek = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]
     @State private var currentMonth: Date
     
-    init(selectedDate: Binding<Date>, hasEvents: @escaping (Date) -> Bool, dateColor: @escaping (Date) -> Color, onDateSelected: @escaping () -> Void) {
+    init(selectedDate: Binding<Date>, hasEvents: @escaping (Date) -> Bool, hasDeadline: @escaping (Date) -> Bool, onDateSelected: @escaping () -> Void) {
         self._selectedDate = selectedDate
         self.hasEvents = hasEvents
-        self.dateColor = dateColor
+        self.hasDeadline = hasDeadline
         self.onDateSelected = onDateSelected
         self._currentMonth = State(initialValue: selectedDate.wrappedValue)
     }
@@ -297,7 +297,7 @@ struct CustomCalendarView: View {
                             isSelected: calendar.isDate(date, inSameDayAs: selectedDate),
                             isCurrentMonth: calendar.isDate(date, equalTo: currentMonth, toGranularity: .month),
                             hasEvent: hasEvents(date),
-                            dateColor: dateColor(date)
+                            hasDeadline: hasDeadline(date)
                         )
                         .onTapGesture {
                             selectedDate = date
@@ -408,50 +408,27 @@ struct CalendarView: View {
         }
     }
     
-    // Функция для проверки наличия событий или дедлайнов на определенную дату
-    private func hasEventsOrDeadlines(_ date: Date) -> Bool {
+    // Функция для проверки наличия дедлайна на определенную дату
+    private func hasDeadline(_ date: Date) -> Bool {
         let calendar = Calendar.current
         let startOfDay = calendar.startOfDay(for: date)
         
-        // Проверяем обычные события
-        let hasEvents = selectedEvents.contains { event in
-            calendar.startOfDay(for: event.date) == startOfDay
-        }
-        
-        // Проверяем дедлайны проектов
-        let hasDeadlines = savedProjects.contains { project in
+        return savedProjects.contains { project in
             if let deadline = project.deadline {
                 return calendar.startOfDay(for: deadline) == startOfDay
             }
             return false
         }
-        
-        return hasEvents || hasDeadlines
     }
     
-    // Функция для определения цвета даты в календаре
-    private func dateColor(_ date: Date) -> Color {
+    // Функция для проверки наличия событий на определенную дату
+    private func hasEvents(_ date: Date) -> Bool {
         let calendar = Calendar.current
         let startOfDay = calendar.startOfDay(for: date)
         
-        // Проверяем, есть ли дедлайн проекта на эту дату
-        let hasDeadline = savedProjects.contains { project in
-            if let deadline = project.deadline {
-                return calendar.startOfDay(for: deadline) == startOfDay
-            }
-            return false
-        }
-        
-        // Если есть дедлайн, возвращаем зеленый цвет
-        if hasDeadline {
-            return .green
-        }
-        
-        // Если есть обычные события, возвращаем accent цвет
-        let hasEvents = selectedEvents.contains { event in
+        return selectedEvents.contains { event in
             calendar.startOfDay(for: event.date) == startOfDay
         }
-        return hasEvents ? .customAccent : .white
     }
     
     var body: some View {
@@ -462,8 +439,8 @@ struct CalendarView: View {
                 VStack {
                     CustomCalendarView(
                         selectedDate: $selectedDate,
-                        hasEvents: hasEventsOrDeadlines,
-                        dateColor: dateColor,
+                        hasEvents: hasEvents,
+                        hasDeadline: hasDeadline,
                         onDateSelected: {
                             showDayView = true
                         }
