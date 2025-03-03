@@ -204,10 +204,37 @@ struct CalendarUnderlineModifier: ViewModifier {
     }
 }
 
+struct DayCell: View {
+    let date: Date
+    let isSelected: Bool
+    let isCurrentMonth: Bool
+    let hasEvent: Bool
+    let dateColor: Color
+    
+    var body: some View {
+        ZStack {
+            if isSelected {
+                Circle()
+                    .fill(Color.customAccent)
+                    .frame(width: 40, height: 40)
+            }
+            
+            Text("\(Calendar.current.component(.day, from: date))")
+                .font(.system(size: 17))
+                .foregroundColor(
+                    isSelected ? .black :
+                        isCurrentMonth ? dateColor : .gray
+                )
+        }
+        .frame(width: 40, height: 40)
+    }
+}
+
 struct CustomCalendarView: View {
     @Binding var selectedDate: Date
     let hasEvents: (Date) -> Bool
     let onDateSelected: () -> Void
+    let dateColor: (Date) -> Color
     
     private var calendar: Calendar {
         var cal = Calendar.current
@@ -219,9 +246,10 @@ struct CustomCalendarView: View {
     private let daysOfWeek = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"]  // Убедимся, что порядок соответствует календарю
     @State private var currentMonth: Date
     
-    init(selectedDate: Binding<Date>, hasEvents: @escaping (Date) -> Bool, onDateSelected: @escaping () -> Void) {
+    init(selectedDate: Binding<Date>, hasEvents: @escaping (Date) -> Bool, dateColor: @escaping (Date) -> Color, onDateSelected: @escaping () -> Void) {
         self._selectedDate = selectedDate
         self.hasEvents = hasEvents
+        self.dateColor = dateColor
         self.onDateSelected = onDateSelected
         self._currentMonth = State(initialValue: selectedDate.wrappedValue)
     }
@@ -268,7 +296,8 @@ struct CustomCalendarView: View {
                             date: date,
                             isSelected: calendar.isDate(date, inSameDayAs: selectedDate),
                             isCurrentMonth: calendar.isDate(date, equalTo: currentMonth, toGranularity: .month),
-                            hasEvent: hasEvents(date)
+                            hasEvent: hasEvents(date),
+                            dateColor: dateColor(date)
                         )
                         .onTapGesture {
                             selectedDate = date
@@ -328,37 +357,12 @@ struct CustomCalendarView: View {
     }
 }
 
-struct DayCell: View {
-    let date: Date
-    let isSelected: Bool
-    let isCurrentMonth: Bool
-    let hasEvent: Bool
-    
-    var body: some View {
-        ZStack {
-            if isSelected {
-                Circle()
-                    .fill(Color.customAccent)
-                    .frame(width: 40, height: 40)
-            }
-            
-            Text("\(Calendar.current.component(.day, from: date))")
-                .font(.system(size: 17))
-                .foregroundColor(
-                    isSelected ? .black :
-                        isCurrentMonth ? (hasEvent ? Color.customAccent : .white) : .gray
-                )
-        }
-        .frame(width: 40, height: 40)
-    }
-}
-
 struct CalendarView: View {
     @Environment(\.dismiss) var dismiss
     @State private var selectedDate = Date()
     @State private var showingSecondView = false
     @State private var selectedEvents: [CalendarEvent] = []
-    @AppStorage("calendarEvents") private var eventsData: Data = Data()
+    @AppStorage("events") private var eventsData: Data = Data()
     @State private var showDayView = false
     @State private var currentProjectId: UUID?
     
@@ -404,15 +408,50 @@ struct CalendarView: View {
         }
     }
     
-    private func hasEvents(for date: Date) -> Bool {
+    // Функция для проверки наличия событий или дедлайнов на определенную дату
+    private func hasEventsOrDeadlines(_ date: Date) -> Bool {
         let calendar = Calendar.current
-        let dateToCheck = calendar.startOfDay(for: date)
+        let startOfDay = calendar.startOfDay(for: date)
         
-        // Просто проверяем, есть ли хотя бы одно событие на эту дату
-        if selectedEvents.contains(where: { calendar.startOfDay(for: $0.date) == dateToCheck }) {
-            return true  // Есть события - подчеркиваем
+        // Проверяем обычные события
+        let hasEvents = selectedEvents.contains { event in
+            calendar.startOfDay(for: event.date) == startOfDay
         }
-        return false    // Нет событий - не подчеркиваем
+        
+        // Проверяем дедлайны проектов
+        let hasDeadlines = savedProjects.contains { project in
+            if let deadline = project.deadline {
+                return calendar.startOfDay(for: deadline) == startOfDay
+            }
+            return false
+        }
+        
+        return hasEvents || hasDeadlines
+    }
+    
+    // Функция для определения цвета даты в календаре
+    private func dateColor(_ date: Date) -> Color {
+        let calendar = Calendar.current
+        let startOfDay = calendar.startOfDay(for: date)
+        
+        // Проверяем, есть ли дедлайн проекта на эту дату
+        let hasDeadline = savedProjects.contains { project in
+            if let deadline = project.deadline {
+                return calendar.startOfDay(for: deadline) == startOfDay
+            }
+            return false
+        }
+        
+        // Если есть дедлайн, возвращаем зеленый цвет
+        if hasDeadline {
+            return .green
+        }
+        
+        // Если есть обычные события, возвращаем accent цвет
+        let hasEvents = selectedEvents.contains { event in
+            calendar.startOfDay(for: event.date) == startOfDay
+        }
+        return hasEvents ? .customAccent : .white
     }
     
     var body: some View {
@@ -423,7 +462,8 @@ struct CalendarView: View {
                 VStack {
                     CustomCalendarView(
                         selectedDate: $selectedDate,
-                        hasEvents: hasEvents,
+                        hasEvents: hasEventsOrDeadlines,
+                        dateColor: dateColor,
                         onDateSelected: {
                             showDayView = true
                         }
